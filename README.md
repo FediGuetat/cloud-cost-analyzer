@@ -2,7 +2,7 @@
 
 finds out where a company's cloud money goes, what looks wrong, and what could be saved. works with AWS, Azure, Google Cloud and Oracle bills because it reads the open FOCUS billing format.
 
-![daily cost with spikes](docs/daily_cost.png)
+![power bi dashboard](docs/powerbi_dashboard.png)
 
 ## why i made this
 
@@ -38,6 +38,8 @@ cloud bills are huge tables with 100k+ rows per month and nobody really reads th
 | compute covered by commitments | 0% |
 | cost spikes | 3 days, biggest on 18.09. with 182 USD instead of ~90 |
 | messy tags | 3 keys with several spellings (`environment` / `env` / `Environment` / `ENV` ...) |
+
+![daily cost with spikes](docs/daily_cost.png)
 
 ## how it works
 
@@ -84,13 +86,21 @@ output in `reports/`:
 
 ## power bi
 
-`powerbi_costs.csv` is built as a fact table: `Date`, `Provider`, `Service`, `Account`, `Team`, `Environment`, `BilledCost`, `EffectiveCost`, `ListCost`. load it, mark `Date` as a date column and build the visuals on top (cost by team, untagged share, daily trend).
+`powerbi_costs.csv` is built as a fact table: `Date`, `Provider`, `Service`, `Account`, `Team`, `Environment`, `BilledCost`, `EffectiveCost`, `ListCost`. the dashboard on top is [docs/cost_dashboard.pbix](docs/cost_dashboard.pbix), built on this file (data is stored in the .pbix, so it opens without running the python part).
 
-the csv also has the credit and tax rows, so filter `ChargeCategory = Usage` for spend, otherwise the numbers won't match the excel report. on a german windows, set the locale to English (United States) when changing the cost columns to decimal in power query, or `0.0006` gets read wrong.
+measures:
+
+```dax
+Usage Cost = CALCULATE(SUM(powerbi_costs[BilledCost]), powerbi_costs[ChargeCategory] = "Usage")
+Untagged Cost = CALCULATE([Usage Cost], powerbi_costs[IsTagged] = FALSE())
+Untagged Share = DIVIDE([Untagged Cost], [Usage Cost])
+```
+
+- the csv also has the credit and tax rows, so `Usage Cost` filters `ChargeCategory = Usage`. without that filter the total is 1,426.91 (net after credits) instead of 2,614.37 and doesn't match the excel report
+- on a german or french windows, power query reads `0.0006` with the local number format and the totals explode (i got 2.29E+19). fix: change the type of the cost and date columns "using locale" English (United States)
 
 ## roadmap
 
-- power bi dashboard file (.pbix) in the repo
 - month over month comparison when the export has several months
 - budgets per team and alerts when a team goes over
 - idle resource detection (resources that cost money every day but are barely used)
