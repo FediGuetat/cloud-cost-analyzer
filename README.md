@@ -56,7 +56,7 @@ the analysis code never touches files, that's why it can be tested with small fa
 
 ## setup
 
-tested on python 3.12 and 3.13
+tested on python 3.13 and 3.14 (pandas 2.3 and 3.0)
 
 ```sh
 python -m venv .venv
@@ -85,6 +85,8 @@ output in `reports/`:
 ## power bi
 
 `powerbi_costs.csv` is built as a fact table: `Date`, `Provider`, `Service`, `Account`, `Team`, `Environment`, `BilledCost`, `EffectiveCost`, `ListCost`. load it, mark `Date` as a date column and build the visuals on top (cost by team, untagged share, daily trend).
+
+the csv also has the credit and tax rows, so filter `ChargeCategory = Usage` for spend, otherwise the numbers won't match the excel report. on a german windows, set the locale to English (United States) when changing the cost columns to decimal in power query, or `0.0006` gets read wrong.
 
 ## roadmap
 

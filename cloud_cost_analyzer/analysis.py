@@ -1,29 +1,21 @@
-"""The FinOps questions: where does the money go, what looks wrong, what can be saved.
-
-Every function takes the cleaned table from load.py and returns plain
-pandas objects, so the report code and the tests can use the same results.
-
-Cost column: BilledCost by default (what is on the invoice). EffectiveCost
-(cost after discounts, spread over time) can be chosen instead.
-"""
+"""Where the money goes, what looks wrong, what can be saved."""
 
 import numpy as np
 import pandas as pd
 
-from .load import UNTAGGED
+from .load import TAG_ALIASES
 
 USAGE = "Usage"
 DEFAULT_COST = "BilledCost"
-NON_PROD = {"dev", "development", "test", "testing", "qa", "staging", "sandbox"}
+NON_PROD = {"dev", "test", "qa", "staging", "sandbox"}
 
 
 def usage_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """Only real consumption. Credits, tax and refunds are not 'spend' of a team."""
+    # credits and tax are not spend of a team, they'd make teams look cheaper
     return df[df["ChargeCategory"] == USAGE]
 
 
 def summary(df: pd.DataFrame, cost: str = DEFAULT_COST) -> dict:
-    """Headline numbers for the whole bill."""
     usage = usage_rows(df)
     usage_cost = usage[cost].sum()
     by_category = df.groupby("ChargeCategory")[cost].sum()
@@ -47,10 +39,6 @@ def summary(df: pd.DataFrame, cost: str = DEFAULT_COST) -> dict:
 
 
 def cost_by(df: pd.DataFrame, column: str, cost: str = DEFAULT_COST, top: int | None = None) -> pd.DataFrame:
-    """Usage cost per value of `column` (service, account, team ...), biggest first.
-
-    With `top`, everything after the first `top` rows is merged into "Other".
-    """
     usage = usage_rows(df)
     table = usage.groupby(column)[cost].sum().sort_values(ascending=False).reset_index()
     table.columns = [column, "Cost"]
@@ -68,7 +56,6 @@ def cost_by(df: pd.DataFrame, column: str, cost: str = DEFAULT_COST, top: int | 
 
 
 def daily_costs(df: pd.DataFrame, cost: str = DEFAULT_COST) -> pd.Series:
-    """Usage cost per day, with missing days filled in as 0."""
     daily = usage_rows(df).groupby("Date")[cost].sum()
     if daily.empty:
         return daily
@@ -78,13 +65,8 @@ def daily_costs(df: pd.DataFrame, cost: str = DEFAULT_COST) -> pd.Series:
 
 def find_anomalies(daily: pd.Series, window: int = 7, threshold: float = 2.5,
                    min_increase: float = 0.25) -> pd.DataFrame:
-    """Days that cost much more than the days before them.
-
-    Expected cost = median of the previous `window` days. A day is a spike if
-    it is `threshold` (default 2.5) robust standard deviations above that (MAD based, so a
-    single earlier spike does not hide the next one) AND at least
-    `min_increase` (25%) above the expected value, so tiny bills don't alarm.
-    """
+    # median/MAD of the previous days instead of mean/std, so one earlier spike
+    # doesn't hide the next one. min_increase stops tiny bills from alarming.
     previous = daily.shift(1).rolling(window, min_periods=window)
     expected = previous.median()
     mad = previous.apply(lambda x: np.median(np.abs(x - np.median(x))), raw=True)
@@ -106,7 +88,6 @@ def find_anomalies(daily: pd.Series, window: int = 7, threshold: float = 2.5,
 
 def untagged_by(df: pd.DataFrame, column: str = "SubAccountName", cost: str = DEFAULT_COST,
                 top: int = 10) -> pd.DataFrame:
-    """Where the untagged spend sits, so you know whom to ask to fix their tags."""
     usage = usage_rows(df)
     untagged = usage[~usage["IsTagged"]]
     table = untagged.groupby(column)[cost].sum().sort_values(ascending=False).head(top).reset_index()
@@ -115,7 +96,6 @@ def untagged_by(df: pd.DataFrame, column: str = "SubAccountName", cost: str = DE
 
 
 def top_resources(df: pd.DataFrame, cost: str = DEFAULT_COST, n: int = 15) -> pd.DataFrame:
-    """The single resources (VMs, databases ...) that cost the most."""
     usage = usage_rows(df).dropna(subset=["ResourceId"]).copy()
     usage["Resource"] = usage["ResourceName"].fillna(usage["ResourceId"].map(short_resource_id))
     group = ["Resource", "ServiceName", "SubAccountName", "tag_environment"]
@@ -125,13 +105,12 @@ def top_resources(df: pd.DataFrame, cost: str = DEFAULT_COST, n: int = 15) -> pd
 
 
 def short_resource_id(resource_id) -> str:
-    """Azure ids are long paths (/subscriptions/.../vm-name); the last part is the name."""
+    # azure ids are long paths, the last part is the name
     text = str(resource_id).rstrip("/")
     return text.rsplit("/", 1)[-1] if "/" in text else text
 
 
 def spike_driver(df: pd.DataFrame, day, cost: str = DEFAULT_COST, window: int = 7) -> str:
-    """Which service grew the most on a spike day, compared to its usual daily cost."""
     usage = usage_rows(df)
     day = pd.Timestamp(day)
     before = usage[(usage["Date"] < day) & (usage["Date"] >= day - pd.Timedelta(days=window))]
@@ -144,12 +123,8 @@ def spike_driver(df: pd.DataFrame, day, cost: str = DEFAULT_COST, window: int = 
 
 
 def nonprod_weekend_cost(df: pd.DataFrame, cost: str = DEFAULT_COST) -> dict:
-    """Dev/test machines running on Saturday and Sunday, when nobody uses them.
-
-    That cost could be saved by stopping non-prod resources on weekends.
-    """
     usage = usage_rows(df)
-    nonprod = usage[usage["tag_environment"].str.lower().isin(NON_PROD)]
+    nonprod = usage[usage["tag_environment"].isin(NON_PROD)]
     weekend = nonprod[nonprod["Date"].dt.dayofweek >= 5]
     nonprod_cost = nonprod[cost].sum()
     weekend_cost = weekend[cost].sum()
@@ -161,13 +136,9 @@ def nonprod_weekend_cost(df: pd.DataFrame, cost: str = DEFAULT_COST) -> dict:
 
 
 def commitment_coverage(df: pd.DataFrame, cost: str = DEFAULT_COST) -> dict:
-    """Share of compute spend covered by savings plans / reserved instances."""
     usage = usage_rows(df)
     compute = usage[usage["ServiceCategory"] == "Compute"]
-    if "CommitmentDiscountId" in compute.columns:
-        covered = compute[compute["CommitmentDiscountId"].notna()][cost].sum()
-    else:
-        covered = 0.0
+    covered = compute.loc[compute["CommitmentDiscountId"].notna(), cost].sum()
     total = compute[cost].sum()
     return {
         "compute_cost": total,
@@ -177,12 +148,6 @@ def commitment_coverage(df: pd.DataFrame, cost: str = DEFAULT_COST) -> dict:
 
 
 def inconsistent_tag_keys(spellings: dict) -> dict:
-    """Group raw tag keys that mean the same thing ("Project", "project", "Project ").
-
-    Returns {normalised key: [spellings]} for keys that have more than one spelling.
-    """
-    from .load import TAG_ALIASES
-
     groups = {}
     for key in spellings:
         norm = key.strip().lower()
@@ -191,26 +156,21 @@ def inconsistent_tag_keys(spellings: dict) -> dict:
     return {norm: keys for norm, keys in groups.items() if len(keys) > 1}
 
 
-def select_month(df: pd.DataFrame, month: str | None = "auto") -> pd.DataFrame:
-    """Analyse one billing month, like you would with a real monthly bill.
-
-    "auto" picks the month with the most usage cost (exports often contain a few
-    late or stray rows from other months). None or "all" keeps everything.
-    """
+def select_month(df: pd.DataFrame, month: str | None = "auto", cost: str = DEFAULT_COST) -> pd.DataFrame:
+    # exports often have a few stray rows from other months, "auto" takes the biggest month
     if month in (None, "all"):
         return df
     if month == "auto":
         usage = usage_rows(df)
         if usage.empty:
             return df
-        month = usage.groupby("Month")["BilledCost"].sum().idxmax()
+        month = usage.groupby("Month")[cost].sum().idxmax()
     selected = df[df["Month"] == month]
     selected.attrs = {**df.attrs, "month": month, "rows_outside_month": len(df) - len(selected)}
     return selected
 
 
 def recommendations(results: dict) -> list[str]:
-    """Turn the numbers into short, concrete next steps."""
     tips = []
     s = results["summary"]
 
@@ -227,7 +187,7 @@ def recommendations(results: dict) -> list[str]:
         tips.append(
             f"Dev/test resources cost {weekend['weekend_cost']:,.2f} on weekends "
             f"({weekend['weekend_share']:.0%} of all non-prod cost). Auto-stopping them "
-            f"Saturday and Sunday would save about that much per month."
+            f"Saturday and Sunday would have saved about that much in this period."
         )
 
     anomalies = results["anomalies"]
@@ -259,7 +219,6 @@ def recommendations(results: dict) -> list[str]:
 
 
 def analyze(df: pd.DataFrame, cost: str = DEFAULT_COST, top: int = 10) -> dict:
-    """Run everything once and return all results in one dict."""
     daily = daily_costs(df, cost)
     results = {
         "cost_column": cost,
@@ -286,9 +245,3 @@ def analyze(df: pd.DataFrame, cost: str = DEFAULT_COST, top: int = 10) -> dict:
     anomalies["Main driver"] = [spike_driver(df, d, cost) for d in anomalies["Date"]]
     results["recommendations"] = recommendations(results)
     return results
-
-
-__all__ = [
-    "UNTAGGED", "analyze", "commitment_coverage", "cost_by", "daily_costs", "find_anomalies",
-    "inconsistent_tag_keys", "nonprod_weekend_cost", "select_month", "short_resource_id", "spike_driver", "recommendations", "summary", "top_resources", "untagged_by", "usage_rows",
-]

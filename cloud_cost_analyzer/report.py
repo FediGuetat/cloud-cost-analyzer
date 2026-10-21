@@ -1,9 +1,4 @@
-"""Write the results somewhere people can use them.
-
-- Excel report: one sheet per question, with charts, for people who live in Excel
-- Power BI export: one clean "fact table" CSV per run, ready to load into Power BI
-- PNG chart of the daily cost with the spikes marked (used in the README)
-"""
+"""Excel report, Power BI csv, daily cost chart and console text."""
 
 from pathlib import Path
 
@@ -11,8 +6,6 @@ import pandas as pd
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-
-from .analysis import usage_rows
 
 HEADER_FILL = PatternFill("solid", fgColor="1F3A5F")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -36,7 +29,6 @@ POWERBI_COLUMNS = {
 
 
 def write_excel(results: dict, path) -> Path:
-    """Excel workbook with a summary sheet, breakdowns, spikes and recommendations."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     cost_col = results["cost_column"]
@@ -79,7 +71,7 @@ def write_excel(results: dict, path) -> Path:
 
 
 def write_powerbi(df: pd.DataFrame, path, cost: str = "BilledCost") -> Path:
-    """One row per day x service x account x team: small, tidy, easy to model in Power BI."""
+    # one row per day x service x account x team, way smaller than the raw export
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     keep = list(POWERBI_COLUMNS)
@@ -96,7 +88,6 @@ def write_powerbi(df: pd.DataFrame, path, cost: str = "BilledCost") -> Path:
 
 
 def write_chart(results: dict, path) -> Path:
-    """PNG of the daily cost with spike days marked in red."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -123,7 +114,6 @@ def write_chart(results: dict, path) -> Path:
 
 
 def console_summary(results: dict) -> str:
-    """Short text version for the terminal."""
     s = results["summary"]
     q = results["quality"]
     lines = [
@@ -170,7 +160,6 @@ def _summary_sheet(results: dict) -> pd.DataFrame:
 
 
 def _style(sheet) -> None:
-    """Header colours, number formats, column widths."""
     for cell in sheet[1]:
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
@@ -217,6 +206,3 @@ def _line_chart(sheet, title: str, anchor: str) -> None:
     chart.set_categories(Reference(sheet, min_col=1, min_row=2, max_row=rows))
     chart.x_axis.number_format = "DD.MM"
     sheet.add_chart(chart, anchor)
-
-
-__all__ = ["console_summary", "usage_rows", "write_chart", "write_excel", "write_powerbi"]

@@ -25,7 +25,7 @@ def main(argv=None) -> None:
     parser.add_argument("--top", default=10, type=int, help="rows per breakdown before 'Other'")
     args = parser.parse_args(argv)
 
-    df = select_month(load_focus(args.file), args.month)
+    df = select_month(load_focus(args.file), args.month, args.cost)
     if df.empty:
         parser.error(f"no rows for month {args.month}")
     results = analyze(df, cost=args.cost, top=args.top)

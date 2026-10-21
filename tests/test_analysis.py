@@ -97,6 +97,17 @@ def test_select_month_auto_picks_biggest_month():
     assert df.attrs["rows_outside_month"] == 1
 
 
+def test_select_month_auto_uses_chosen_cost():
+    # march is bigger on the invoice, september after discounts
+    sept = row(1, 5.0)
+    march = row(1, 8.0)
+    march["ChargePeriodStart"] = "2024-03-01 00:00:00"
+    march["EffectiveCost"] = 2.0
+    bill = make_bill([sept, march])
+    assert set(select_month(bill)["Month"]) == {"2024-03"}
+    assert set(select_month(bill, cost="EffectiveCost")["Month"]) == {"2024-09"}
+
+
 def test_short_resource_id():
     assert short_resource_id("/subscriptions/x/resourceGroups/rg/providers/vm/my-vm") == "my-vm"
     assert short_resource_id("i-123") == "i-123"

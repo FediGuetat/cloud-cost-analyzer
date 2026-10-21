@@ -1,4 +1,4 @@
-"""cloud-cost-analyzer: find where cloud money goes and what can be saved (FOCUS billing data)."""
+"""Analyse FOCUS cloud billing exports."""
 
 from .analysis import analyze, select_month
 from .load import load_focus
